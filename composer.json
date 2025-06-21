@@ -1,0 +1,20 @@
+{
+    "name": "cabanga/smail-service",
+    "description": "An email microservice for contact forms || Um micro-serviço de e-mail para formulários de contacto.",
+    "type": "service",
+    "require": {
+        "phpmailer/phpmailer": "^6.10",
+        "vlucas/phpdotenv": "^5.6",
+        "ezyang/htmlpurifier": "^4.17"
+    },
+    "autoload": {
+        "psr-4": {
+            "Cabanga\\Smail\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Delcio Cabanga"
+        }
+    ]
+}

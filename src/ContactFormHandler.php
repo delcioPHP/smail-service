@@ -2,101 +2,69 @@
 
 namespace Cabanga\Smail;
 
+use Cabanga\Smail\Http\Request;
+use Cabanga\Smail\Http\Response;
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception as PHPMailerException;
 use HTMLPurifier;
 use HTMLPurifier_Config;
 class ContactFormHandler {
-    private Config $config;
-    private Translator $translator;
-    private array $data;
-    private string $origin;
     private const MAX_BODY_LENGTH = 4000;
 
-    public function __construct(Config $config) {
-        $this->config = $config;
-        $this->origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-        $this->data = $this->getInputData();
-        $lang = $this->data['lang'] ?? $this->config->get(
-            'DEFAULT_LANG', 'en'
+    public function __construct(
+        private Config $config,
+        private Translator $translator,
+        private Request $request
+    )
+    {}
+
+
+    private function validateRequest(): ?Response {
+        if ($this->request->method !== 'POST') {
+            return $this->createErrorResponse($this->translator->get('error_method_not_allowed'), 405);
+        }
+        $allowedOrigins = explode(',', $this->config->get('ALLOWED_ORIGINS'));
+        if (!in_array($this->request->origin, $allowedOrigins)) {
+            return $this->createErrorResponse($this->translator->get('error_unauthorized'), 403);
+        }
+        if ($this->request->contentType !== 'application/json') {
+            return $this->createErrorResponse($this->translator->get('error_content_type'), 400);
+        }
+        return null;
+    }
+
+    private function validateData(): ?Response {
+        $requiredFields = $this->request->get(
+            'required_fields', ['name', 'email', 'query']
         );
-        $this->translator = new Translator(
-            $lang, $this->config->get('DEFAULT_LANG', 'en')
-        );
-        $this->validateRequest();
-    }
-
-    private function validateRequest(): void {
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            $this->sendErrorResponse($this->translator->get(
-                'error_method_not_allowed'), 405
-            );
-        }
-        $allowedOrigins = explode(',', $this->config->get(
-            'ALLOWED_ORIGINS')
-        );
-        if (!in_array($this->origin, $allowedOrigins)) {
-            $this->sendErrorResponse($this->translator->get(
-                'error_unauthorized'), 403
-            );
-        }
-        if ($_SERVER['CONTENT_TYPE'] !== 'application/json') {
-            $this->sendErrorResponse($this->translator->get(
-                'error_content_type'), 400
-            );
-        }
-    }
-
-    private function setCorsHeaders(): void {
-        header("Access-Control-Allow-Origin: {$this->origin}");
-        header("Access-Control-Allow-Methods: POST");
-        header("Access-Control-Allow-Headers: Content-Type");
-    }
-
-    private function getInputData(): array {
-        $json = file_get_contents('php://input');
-        $data = json_decode($json, true);
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'message' => 'Invalid JSON']);
-            exit;
-        }
-        return $data;
-    }
-
-    private function validateData(): void {
-        $requiredFields = $this->data['required_fields'] ?? ['name', 'email', 'query'];
         foreach ($requiredFields as $field) {
-            if (empty($this->data[$field])) {
-                $errorMessage = $this->translator->get(
-                    'error_field_required', [$field]
+            if (!$this->request->get($field)) {
+                return $this->createErrorResponse($this->translator->get(
+                    'error_field_required', [$field]), 400
                 );
-                $this->sendErrorResponse($errorMessage, 400);
             }
         }
-        if (!filter_var($this->data['email'], FILTER_VALIDATE_EMAIL)) {
-            $this->sendErrorResponse($this->translator->get(
+        if (!filter_var($this->request->get('email'), FILTER_VALIDATE_EMAIL)) {
+            return $this->createErrorResponse($this->translator->get(
                 'error_invalid_email'), 400
             );
         }
-        if (
-            isset($this->data['query']) &&
-            strlen($this->data['query']) > self::MAX_BODY_LENGTH
-        ) {
-            $this->sendErrorResponse($this->translator->get(
+        if (strlen($this->request->get('query', '')) > self::MAX_BODY_LENGTH) {
+            return $this->createErrorResponse($this->translator->get(
                 'error_message_too_long'), 400
             );
         }
+        return null;
     }
 
-    private function sanitizeData(): array {
+    private function sanitizeData(array $data): array
+    {
         $sanitized = [];
-
-        foreach ($this->data as $key => $value) {
+        foreach ($data as $key => $value) {
             if (is_string($value)) {
                 $sanitized[$key] = htmlspecialchars(trim($value), ENT_QUOTES, 'UTF-8');
             } else {
-                $sanitized[$key] = $value; // Mantém outros tipos de dados
+                $sanitized[$key] = $value;
             }
         }
         return $sanitized;
@@ -104,7 +72,6 @@ class ContactFormHandler {
 
     private function renderTemplate(string $templatePath, array $data): string {
         ob_start();
-        // Torna os dados disponíveis para o template
         extract($data);
         include $templatePath;
         return ob_get_clean();
@@ -130,9 +97,10 @@ class ContactFormHandler {
         return $this->renderTemplate($templatePath, $data);
     }
 
-    private function sendEmail(array $data): void {
-        $mail = new PHPMailer(true);
-
+    /**
+     * @throws \Exception
+     */
+    private function sendEmail(array $data, PHPMailer $mail): void {
         try {
             $mail->isSMTP();
             $mail->Host = $this->config->get('SMTP_HOST');
@@ -167,9 +135,7 @@ class ContactFormHandler {
 
         } catch (PHPMailerException $e) {
             $this->logError($mail->ErrorInfo);
-            $this->sendErrorResponse($this->translator->get(
-                'error_sending_email'), 500
-            );
+            throw new \Exception($this->translator->get('error_sending_email'));
         }
     }
 
@@ -181,22 +147,35 @@ class ContactFormHandler {
         file_put_contents($this->config->get('LOG_PATH') . 'error.log', date('Y-m-d H:i:s') . " - Erro: $error\n", FILE_APPEND);
     }
 
-    private function sendErrorResponse(string $message, int $statusCode): void {
-        http_response_code($statusCode);
-        $this->setCorsHeaders();
-        echo json_encode(['success' => false, 'message' => $message]);
-        exit;
-    }
+    public function process(PHPMailer $mail): Response {
+        if ($response = $this->validateRequest()) return $response;
+        if ($response = $this->validateData()) return $response;
 
-    public function process(): void {
-        $this->setCorsHeaders();
-        $this->validateData();
-        $sanitizedData = $this->sanitizeData();
-        $this->sendEmail($sanitizedData);
+        $sanitizedData = $this->sanitizeData($this->request->body);
 
-        echo json_encode([
+        try {
+            $this->sendEmail($sanitizedData, $mail);
+        } catch (\Exception $e) {
+            return $this->createErrorResponse($e->getMessage(), 500);
+        }
+        $body = json_encode([
             'success' => true,
             'message' => $this->translator->get('success_message')
+        ]);
+        return new Response($body, 200, [
+            "Access-Control-Allow-Origin" => $this->request->origin,
+            "Content-Type" => "application/json"
+        ]);
+    }
+
+    private function createErrorResponse(
+        string $message, int $statusCode
+    ): Response
+    {
+        $body = json_encode(['success' => false, 'message' => $message]);
+        return new Response($body, $statusCode, [
+            "Access-Control-Allow-Origin" => $this->request->origin,
+            "Content-Type" => "application/json"
         ]);
     }
 }

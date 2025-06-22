@@ -1,0 +1,1 @@
+{"version":1,"defects":{"Tests\\ContactFormHandlerTest::testProcessSuccess":7,"Tests\\ContactFormHandlerTest::testProcessSuccess4":7},"times":{"Tests\\ContactFormHandlerTest::testProcessSuccess":0.019,"Tests\\ContactFormHandlerTest::testProcessFailsWhenRequiredFieldIsMissing":0.002,"Tests\\ContactFormHandlerTest::testProcessSuccess4":0.018}}

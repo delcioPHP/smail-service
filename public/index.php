@@ -1,4 +1,5 @@
 <?php
+require __DIR__ . '/../vendor/autoload.php';
 
 // Preflight requests
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -10,31 +11,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 header("Content-Type: application/json");
 
-require __DIR__ . '/../vendor/autoload.php';
-
 use Cabanga\Smail\Config;
+use Cabanga\Smail\Http\Request;
+use Cabanga\Smail\Http\Response;
 use Cabanga\Smail\Router;
 use Cabanga\Smail\ContactFormHandler;
+use Cabanga\Smail\Translator;
+use PHPMailer\PHPMailer\PHPMailer;
 
 try {
     // Load configs
     $config = new Config(__DIR__ . '/../');
+    $request = Request::createFromGlobals();
+
+    $lang = $request->get('lang', $config->get(
+        'DEFAULT_LANG', 'en')
+    );
+    $translator = new Translator($lang, $config->get(
+        'DEFAULT_LANG', 'en')
+    );
+
     $router = new Router();
     // Define the route based on the .env configuration
     $apiRoute = $config->get('API_ROUTE', '/api/contact');
 
-    $router->post($apiRoute, function() use ($config) {
-        $service = new ContactFormHandler($config);
-        $service->process();
+    $router->post($apiRoute, function() use ($config, $translator, $request) {
+        $service = new ContactFormHandler($config, $translator, $request);
+        $mail = new PHPMailer(true);
+        $response = $service->process($mail);
+        $response->send();
     });
 
     $router->dispatch();
 
 } catch (\Exception $e) {
-    http_response_code(500);
     error_log($e->getMessage());
-    echo json_encode([
-        'success' => false,
-        'message' => 'Ocorreu um erro interno no servidor.'
-    ]);
+    $response = new Response(
+        json_encode(['success' => false, 'message' => 'Server Error']),
+        500
+    );
+    $response->send();
 }

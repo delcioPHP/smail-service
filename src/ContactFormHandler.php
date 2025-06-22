@@ -34,26 +34,36 @@ class ContactFormHandler {
     }
 
     private function validateData(): ?Response {
-        $requiredFields = $this->request->get(
-            'required_fields', ['name', 'email', 'query']
-        );
+        $isCustomTemplate = !empty($this->request->get('html_template'));
+        $defaultRequiredFields = $isCustomTemplate ?
+            ['name', 'email'] : ['name', 'email', 'query'];
+        $requiredFields = $this->request->get('required_fields', $defaultRequiredFields);
+
         foreach ($requiredFields as $field) {
             if (!$this->request->get($field)) {
-                return $this->createErrorResponse($this->translator->get(
-                    'error_field_required', [$field]), 400
+                return $this->createErrorResponse(
+                    $this->translator->get('error_field_required', [$field]),
+                    400
                 );
             }
         }
-        if (!filter_var($this->request->get('email'), FILTER_VALIDATE_EMAIL)) {
+
+        if (!filter_var($this->request->get('email'),
+            FILTER_VALIDATE_EMAIL)
+        ) {
             return $this->createErrorResponse($this->translator->get(
                 'error_invalid_email'), 400
             );
         }
-        if (strlen($this->request->get('query', '')) > self::MAX_BODY_LENGTH) {
+
+        if (strlen($this->request->get('query', '')) >
+            self::MAX_BODY_LENGTH
+        ) {
             return $this->createErrorResponse($this->translator->get(
                 'error_message_too_long'), 400
             );
         }
+
         return null;
     }
 

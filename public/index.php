@@ -27,6 +27,7 @@ header("Content-Type: application/json");
 
 use Cabanga\Smail\Config;
 use Cabanga\Smail\FileLogger;
+use Cabanga\Smail\Http\NativeHttpClient;
 use Cabanga\Smail\Http\Request;
 use Cabanga\Smail\Http\Response;
 use Cabanga\Smail\Router;
@@ -46,13 +47,26 @@ try {
         'DEFAULT_LANG', 'pt')
     );
     $logger = new FileLogger($config);
+    $httpClient = new NativeHttpClient();
 
     $router = new Router();
     // Define the route based on the .env configuration
     $apiRoute = $config->get('API_ROUTE', '/api/contact');
 
-    $router->post($apiRoute, function() use ($config, $translator, $request, $logger) {
-        $service = new ContactFormHandler($config, $translator, $request, $logger);
+    $router->post($apiRoute, function() use (
+        $config,
+        $translator,
+        $request,
+        $logger,
+        $httpClient
+    ) {
+        $service = new ContactFormHandler(
+            $config,
+            $translator,
+            $request,
+            $logger,
+            $httpClient
+        );
         $mail = new PHPMailer(true);
         $response = $service->process($mail);
         $response->send();

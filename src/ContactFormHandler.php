@@ -16,6 +16,7 @@ namespace Cabanga\Smail;
 
 use Cabanga\Smail\Http\Request;
 use Cabanga\Smail\Http\Response;
+use Cabanga\Smail\interfaces\HttpClientInterface;
 use Cabanga\Smail\interfaces\LoggerInterface;
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception as PHPMailerException;
@@ -28,7 +29,8 @@ class ContactFormHandler {
         private readonly Config     $config,
         private readonly Translator $translator,
         private readonly Request    $request,
-        private readonly LoggerInterface $logger
+        private readonly LoggerInterface $logger,
+        private readonly HttpClientInterface $httpClient
     )
     {}
 
@@ -187,21 +189,11 @@ class ContactFormHandler {
 
         $secretKey = $this->config->get('RECAPTCHA_SECRET_KEY');
         $url  = $this->config->get('RECAPTCHA_URL');
-        $data = [
+        $responseJson = $this->httpClient->post($url, [
             'secret'   => $secretKey,
             'response' => $token,
-            'remoteip' => $_SERVER['REMOTE_ADDR']
-        ];
-
-        $options = [
-            'http' => [
-                'header'  => "Content-type: application/x-www-form-urlencoded\r\n",
-                'method'  => 'POST',
-                'content' => http_build_query($data)
-            ]
-        ];
-        $context  = stream_context_create($options);
-        $responseJson = @file_get_contents($url, false, $context);
+            'remoteip' => $_SERVER['REMOTE_ADDR'] ?? ''
+        ]);
 
         if ($responseJson === false) {
             $this->logger->logError($this->translator->get('error_recaptcha_link'));
@@ -209,9 +201,13 @@ class ContactFormHandler {
         }
 
         $response = json_decode($responseJson, true);
-        $threshold = (float) $this->config->get('RECAPTCHA_V3_THRESHOLD', '0.5');
+        $threshold = floatval($this->config->get('RECAPTCHA_V3_THRESHOLD', '0.5'));
 
-        if (!$response['success'] || $response['score'] < $threshold) {
+        if (
+            ($response['success'] === false && $response['score'] < $threshold ) ||
+            ($response['success'] === true && $response['score'] < $threshold ) ||
+            ($response['success'] === false && $response['score'] > $threshold )
+        ) {
             $this->logger->logError($this->translator->get('error_recaptcha_reject'). 'Score: ' . ($response['score'] ?? 'N/A') . '. Errors: ' . implode(', ', $response['error-codes'] ?? []));
             return $this->createErrorResponse($this->translator->get('error_recaptcha_reject'), 403);
         }
@@ -219,8 +215,8 @@ class ContactFormHandler {
     }
 
     public function process(PHPMailer $mail): Response {
-
-        if ($this->config->get('RECAPTCHA_ENABLED') === 'true') {
+        $isRecaptchaEnabled = filter_var($this->config->get('RECAPTCHA_ENABLED'), FILTER_VALIDATE_BOOLEAN);
+        if ($isRecaptchaEnabled) {
             if ($response = $this->validateRecaptcha()) {
                 return $response;
             }

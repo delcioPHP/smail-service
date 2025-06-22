@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  smail-service:
+    image: cabanga/smail-service:1.0.0
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+    environment:
+      # SERVICE
+      - ALLOWED_ORIGINS=http://localhost:3000,http://yourdomain.ao
+      - API_ROUTE=/api/contact
+      - LOG_PATH=/var/www/html/logs/
+      - DEFAULT_LANG=pt
+
+      # SMTP
+      - SMTP_HOST=smtp.yourdomain.ao
+      - SMTP_PORT=465
+      - SMTP_USERNAME=no-reply@yourdomain.ao
+      - SMTP_PASSWORD=SuaSenhaSuperSegura
+      - SMTP_SECURE=ssl # or 'tls'
+
+      # E-mail
+      - EMAIL_FROM=no-reply@yourdomain.ao
+      - EMAIL_FROM_NAME="Contacto do Site"
+      - EMAIL_TO=your@yourdomain.ao
+      - EMAIL_SUBJECT="Novo Contacto do Website"
+
+      # SECURITY
+      - RECAPTCHA_ENABLED=false
+      - RECAPTCHA_SECRET_KEY=''
+      - RECAPTCHA_V3_THRESHOLD=''

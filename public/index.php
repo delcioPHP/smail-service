@@ -1,4 +1,18 @@
 <?php
+
+/**
+ * SMAIL - Secure and Configurable PHP Microservice for Email
+ *
+ * @author     Délcio Cabanga
+ * @country    Angola
+ * @created    2025/06/21
+ *
+ * SMAIL is a secure and configurable PHP email microservice designed to act as
+ * the backend for contact forms on static websites (HTML/CSS/JS, Jamstack, Vue, React.).
+ * With a single implementation, it can serve multiple websites without requiring
+ * a full backend system.
+ */
+
 require __DIR__ . '/../vendor/autoload.php';
 
 // Preflight requests
@@ -12,6 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 header("Content-Type: application/json");
 
 use Cabanga\Smail\Config;
+use Cabanga\Smail\FileLogger;
 use Cabanga\Smail\Http\Request;
 use Cabanga\Smail\Http\Response;
 use Cabanga\Smail\Router;
@@ -25,18 +40,19 @@ try {
     $request = Request::createFromGlobals();
 
     $lang = $request->get('lang', $config->get(
-        'DEFAULT_LANG', 'en')
+        'DEFAULT_LANG', 'pt')
     );
     $translator = new Translator($lang, $config->get(
-        'DEFAULT_LANG', 'en')
+        'DEFAULT_LANG', 'pt')
     );
+    $logger = new FileLogger($config);
 
     $router = new Router();
     // Define the route based on the .env configuration
     $apiRoute = $config->get('API_ROUTE', '/api/contact');
 
-    $router->post($apiRoute, function() use ($config, $translator, $request) {
-        $service = new ContactFormHandler($config, $translator, $request);
+    $router->post($apiRoute, function() use ($config, $translator, $request, $logger) {
+        $service = new ContactFormHandler($config, $translator, $request, $logger);
         $mail = new PHPMailer(true);
         $response = $service->process($mail);
         $response->send();

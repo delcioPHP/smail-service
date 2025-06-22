@@ -2,4 +2,8 @@
 .idea
 logs/*
 .env
+Dockerfile
+docker-compose.yaml
+.Dockerignore
+docker/*
 

@@ -1,9 +1,22 @@
 <?php
+/**
+ * SMAIL - Secure and Configurable PHP Microservice for Email
+ *
+ * @author     Délcio Cabanga
+ * @country    Angola
+ * @created    2025/06/21
+ *
+ * SMAIL is a secure and configurable PHP email microservice designed to act as
+ * the backend for contact forms on static websites (HTML/CSS/JS, Jamstack, Vue, React.).
+ * With a single implementation, it can serve multiple websites without requiring
+ * a full backend system.
+ */
 
 namespace Cabanga\Smail;
 
 use Cabanga\Smail\Http\Request;
 use Cabanga\Smail\Http\Response;
+use Cabanga\Smail\interfaces\LoggerInterface;
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception as PHPMailerException;
 use HTMLPurifier;
@@ -12,14 +25,21 @@ class ContactFormHandler {
     private const MAX_BODY_LENGTH = 4000;
 
     public function __construct(
-        private Config $config,
-        private Translator $translator,
-        private Request $request
+        private readonly Config     $config,
+        private readonly Translator $translator,
+        private readonly Request    $request,
+        private readonly LoggerInterface $logger
     )
     {}
 
-
     private function validateRequest(): ?Response {
+
+        $correctKey = $this->config->get('API_SECRET_KEY');
+        $submittedKey = $this->request->getHeader('X-API-Key');
+
+        if (empty($correctKey) || !hash_equals($correctKey, $submittedKey)) {
+            return $this->createErrorResponse($this->translator->get('error_unauthorized'), 403);
+        }
         if ($this->request->method !== 'POST') {
             return $this->createErrorResponse($this->translator->get('error_method_not_allowed'), 405);
         }
@@ -29,6 +49,14 @@ class ContactFormHandler {
         }
         if ($this->request->contentType !== 'application/json') {
             return $this->createErrorResponse($this->translator->get('error_content_type'), 400);
+        }
+        if (!empty($this->request->get('websiteUrl'))) {
+            $body = json_encode([
+                'success' => true,
+                'message' => $this->translator->get('generic_success')
+            ]);
+            echo $body;
+            exit();
         }
         return null;
     }
@@ -140,24 +168,64 @@ class ContactFormHandler {
             $mail->send();
             //Lembrete DC, pensar em salvar os mails nos logs, mas de forma incompleta para segura
 //            E-mail enviado com sucesso de {$data['email']}
-            $this->logSuccess($this->translator->get(
-                'success_send_email'));
+            $this->logger->logSuccess($this->translator->get(
+                'success_message'));
 
         } catch (PHPMailerException $e) {
-            $this->logError($mail->ErrorInfo);
+            $this->logger->logError($mail->ErrorInfo);
             throw new \Exception($this->translator->get('error_sending_email'));
         }
     }
 
-    private function logSuccess(string $message): void {
-        file_put_contents($this->config->get('LOG_PATH') . 'contact.log', date('Y-m-d H:i:s') . " - $message\n", FILE_APPEND);
-    }
+    private function validateRecaptcha(): ?Response
+    {
+        $token = $this->request->get('recaptchaToken');
 
-    private function logError(string $error): void {
-        file_put_contents($this->config->get('LOG_PATH') . 'error.log', date('Y-m-d H:i:s') . " - Erro: $error\n", FILE_APPEND);
+        if (empty($token)) {
+            return $this->createErrorResponse($this->translator->get('error_recaptcha'), 400);
+        }
+
+        $secretKey = $this->config->get('RECAPTCHA_SECRET_KEY');
+        $url  = $this->config->get('RECAPTCHA_URL');
+        $data = [
+            'secret'   => $secretKey,
+            'response' => $token,
+            'remoteip' => $_SERVER['REMOTE_ADDR']
+        ];
+
+        $options = [
+            'http' => [
+                'header'  => "Content-type: application/x-www-form-urlencoded\r\n",
+                'method'  => 'POST',
+                'content' => http_build_query($data)
+            ]
+        ];
+        $context  = stream_context_create($options);
+        $responseJson = @file_get_contents($url, false, $context);
+
+        if ($responseJson === false) {
+            $this->logger->logError($this->translator->get('error_recaptcha_link'));
+            return $this->createErrorResponse($this->translator->get('error_recaptcha_link'), 500);
+        }
+
+        $response = json_decode($responseJson, true);
+        $threshold = (float) $this->config->get('RECAPTCHA_V3_THRESHOLD', '0.5');
+
+        if (!$response['success'] || $response['score'] < $threshold) {
+            $this->logger->logError($this->translator->get('error_recaptcha_reject'). 'Score: ' . ($response['score'] ?? 'N/A') . '. Errors: ' . implode(', ', $response['error-codes'] ?? []));
+            return $this->createErrorResponse($this->translator->get('error_recaptcha_reject'), 403);
+        }
+        return null;
     }
 
     public function process(PHPMailer $mail): Response {
+
+        if ($this->config->get('RECAPTCHA_ENABLED') === 'true') {
+            if ($response = $this->validateRecaptcha()) {
+                return $response;
+            }
+        }
+
         if ($response = $this->validateRequest()) return $response;
         if ($response = $this->validateData()) return $response;
 

@@ -70,8 +70,8 @@ services:
 
       # SECURITY  
       - RECAPTCHA_ENABLED=false  
-      - RECAPTCHA_SECRET_KEY='0.5'  
-      - RECAPTCHA_V3_THRESHOLD=''
+      - RECAPTCHA_SECRET_KEY=''  
+      - RECAPTCHA_V3_THRESHOLD='0.5'
       - RECAPTCHA_URL='https://www.google.com/recaptcha/api/siteverify'
 ```
 

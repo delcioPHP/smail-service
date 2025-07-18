@@ -12,6 +12,7 @@ services:
       - API_ROUTE=/api/contact
       - LOG_PATH=/var/www/html/logs/
       - DEFAULT_LANG=pt
+      - API_SECRET_KEY=key_super_secret
 
       # SMTP
       - SMTP_HOST=smtp.yourdomain.ao
